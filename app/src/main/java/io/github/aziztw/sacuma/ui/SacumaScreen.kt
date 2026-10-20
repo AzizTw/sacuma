@@ -143,25 +143,14 @@ private fun Header(state: UiState, actions: UiActions) {
 
 @Composable
 private fun Logo() {
-    Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Gc.Accent),
-        contentAlignment = Alignment.Center,
-    ) {
-        // A small cube seen corner-on: a rotated rounded square outline.
-        Canvas(Modifier.size(20.dp)) {
-            val s = size.minDimension * 0.62f
-            val c = center
-            rotateSquare(c, s)
+    Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Gc.Accent)) {
+        // Same A/B/X/Y cluster as the launcher icon, fitted to the tile.
+        Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension * 0.41f / CLUSTER_RADIUS
+            val c = center + Offset(0.14f * r, -0.05f * r)
+            drawFaceCluster(c, r, Gc.AOn, Gc.BOn, Gc.XyOn, Gc.XyOn)
         }
     }
-}
-
-private fun DrawScope.rotateSquare(c: Offset, s: Float) {
-    val h = s / 2 * 1.414f
-    val p = Path().apply {
-        moveTo(c.x, c.y - h); lineTo(c.x + h, c.y); lineTo(c.x, c.y + h); lineTo(c.x - h, c.y); close()
-    }
-    drawPath(p, Gc.Text, style = Stroke(width = 3.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round))
 }
 
 @Composable
@@ -322,16 +311,25 @@ private fun FaceButtons(pad: PadState, modifier: Modifier) {
         val r = minOf(size.width / 4.6f, size.height / 3.75f)
         val c = Offset(size.width / 2 + 0.15f * r, size.height / 2 + 0.425f * r)
 
-        drawCircle(if (pad.pressed(b1Bit = PadState.B1_A)) Gc.AOn else Gc.AOff, r, c)
-        drawCircle(
-            if (pad.pressed(b1Bit = PadState.B1_B)) Gc.BOn else Gc.BOff,
-            0.6f * r, c + polar(2.0f * r, 155f),
+        drawFaceCluster(
+            c, r,
+            a = if (pad.pressed(b1Bit = PadState.B1_A)) Gc.AOn else Gc.AOff,
+            b = if (pad.pressed(b1Bit = PadState.B1_B)) Gc.BOn else Gc.BOff,
+            x = if (pad.pressed(b1Bit = PadState.B1_X)) Gc.XyOn else Gc.XyOff,
+            y = if (pad.pressed(b1Bit = PadState.B1_Y)) Gc.XyOn else Gc.XyOff,
         )
-        val x = if (pad.pressed(b1Bit = PadState.B1_X)) Gc.XyOn else Gc.XyOff
-        val y = if (pad.pressed(b1Bit = PadState.B1_Y)) Gc.XyOn else Gc.XyOff
-        drawPath(kidney(c, r, from = -27f, to = -1f), x)
-        drawPath(kidney(c, r, from = -117f, to = -91f), y)
     }
+}
+
+/** The whole cluster fits in a circle of this many A-radii (around a point just left of A). */
+private const val CLUSTER_RADIUS = 2.451f
+
+/** Draws A, B, X, Y around A's center [c] with A radius [r] (shared by cards and logo). */
+private fun DrawScope.drawFaceCluster(c: Offset, r: Float, a: Color, b: Color, x: Color, y: Color) {
+    drawCircle(a, r, c)
+    drawCircle(b, 0.6f * r, c + polar(2.0f * r, 155f))
+    drawPath(kidney(c, r, from = -27f, to = -1f), x)
+    drawPath(kidney(c, r, from = -117f, to = -91f), y)
 }
 
 private fun polar(radius: Float, degrees: Float): Offset {
