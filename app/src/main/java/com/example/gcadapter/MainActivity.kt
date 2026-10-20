@@ -1,11 +1,13 @@
 package com.example.gcadapter
 
+import android.Manifest
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
@@ -13,6 +15,10 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 
+/**
+ * The screen. It only asks for permissions, starts AdapterService, and shows the
+ * service's state; the adapter itself is handled entirely by the service.
+ */
 class MainActivity : Activity() {
 
     // `external` = implemented in C (native-lib.c), resolved by JNI at runtime.
@@ -21,38 +27,28 @@ class MainActivity : Activity() {
     private lateinit var usb: UsbManager
     private lateinit var text: TextView
     private var header = ""
-    private var reader: AdapterReader? = null
+    private var message = ""
 
-    // Android answers our permission request with a broadcast, and also broadcasts
-    // when a USB device is unplugged; this receives both.
-    private val usbReceiver = object : BroadcastReceiver() {
+    // Android answers our USB permission request with a broadcast; this receives it.
+    private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                ACTION_USB_PERMISSION ->
-                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                        Log.i(TAG, "USB permission granted")
-                        connectAdapter()
-                    } else {
-                        Log.w(TAG, "USB permission denied")
-                        show("USB permission denied")
-                    }
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val device = usbDeviceExtra(intent) ?: return
-                    if (device.deviceName == reader?.deviceName) {
-                        Log.i(TAG, "adapter unplugged")
-                        reader?.stop() // its onClosed resets the UI state
-                    }
-                }
+            if (intent.action != ACTION_USB_PERMISSION) return
+            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                Log.i(TAG, "USB permission granted")
+                startAdapterService()
+            } else {
+                Log.w(TAG, "USB permission denied")
+                setMessage("USB permission denied. Replug the adapter to try again.")
             }
         }
     }
+
+    private val stateListener: (AdapterState.Snapshot) -> Unit = { render(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         header = nativeHello()
-        Log.i(TAG, header)
-
         text = TextView(this).apply {
             textSize = 18f
             setPadding(48, 48, 48, 48)
@@ -60,78 +56,65 @@ class MainActivity : Activity() {
         setContentView(text)
 
         usb = getSystemService(UsbManager::class.java)
-        val filter = IntentFilter(ACTION_USB_PERMISSION).apply {
-            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        }
+        val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(permissionReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
-            registerReceiver(usbReceiver, filter)
+            registerReceiver(permissionReceiver, filter)
         }
 
-        connectAdapter()
+        // Android 13+: notifications (incl. our service's) need a runtime permission.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+        }
+
+        handle(intent)
     }
 
-    // Called instead of onCreate when the app is already open and the adapter is
-    // plugged in (launchMode="singleTop" + the USB_DEVICE_ATTACHED filter).
+    // singleTop: a second launch (e.g. adapter plugged in while open) lands here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        connectAdapter()
+        handle(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AdapterState.addListener(stateListener)
+    }
+
+    override fun onStop() {
+        AdapterState.removeListener(stateListener)
+        super.onStop()
     }
 
     override fun onDestroy() {
-        reader?.stop()
-        unregisterReceiver(usbReceiver)
+        unregisterReceiver(permissionReceiver)
         super.onDestroy()
     }
 
-    private fun connectAdapter() {
-        if (reader != null) return
-        val device = usb.deviceList.values.firstOrNull {
-            it.vendorId == GC_VENDOR_ID && it.productId == GC_PRODUCT_ID
+    private fun handle(intent: Intent) {
+        val device = findAdapter(usb)
+        when {
+            device == null -> setMessage("GameCube adapter not found. Plug it in.")
+            !usb.hasPermission(device) -> {
+                setMessage("Asking for USB permission…")
+                requestPermission(device)
+            }
+            else -> {
+                startAdapterService()
+                // Opened by plugging the adapter in: start in the background and get
+                // out of the way so the user is back where they were.
+                if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) finish()
+            }
         }
-        if (device == null) {
-            show("GameCube adapter not found. Plug it in.")
-            return
-        }
-        if (!usb.hasPermission(device)) {
-            show("Asking for USB permission…")
-            requestPermission(device)
-            return
-        }
-        show("Adapter connected, waiting for packets…")
-        var self: AdapterReader? = null
-        self = AdapterReader(
-            usb, device,
-            onUpdate = { pads, active ->
-                runOnUiThread {
-                    show(pads.mapIndexed { i, p ->
-                        val pad = if (active and (1 shl i) != 0) "  → virtual pad" else ""
-                        "Port ${i + 1}: $p$pad"
-                    }.joinToString("\n"))
-                }
-            },
-            onClosed = {
-                runOnUiThread {
-                    // Forget the dead reader so a replugged adapter can connect again.
-                    if (reader === self) {
-                        reader = null
-                        show("Adapter disconnected. Plug it back in.")
-                    }
-                }
-            },
-        )
-        reader = self
-        self.start()
     }
 
-    @Suppress("DEPRECATION")
-    private fun usbDeviceExtra(intent: Intent): UsbDevice? =
-        if (Build.VERSION.SDK_INT >= 33) {
-            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-        } else {
-            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-        }
+    private fun startAdapterService() {
+        startForegroundService(Intent(this, AdapterService::class.java))
+        setMessage("")
+    }
 
     private fun requestPermission(device: UsbDevice) {
         // The intent must name our package (explicit), and be mutable so the
@@ -141,15 +124,26 @@ class MainActivity : Activity() {
         usb.requestPermission(device, PendingIntent.getBroadcast(this, 0, intent, flags))
     }
 
-    private fun show(status: String) {
-        text.text = "$header\n\n$status"
+    private fun setMessage(m: String) {
+        message = m
+        render(AdapterState.current)
+    }
+
+    private fun render(s: AdapterState.Snapshot) {
+        val body = if (s.running) {
+            s.pads.mapIndexed { i, p ->
+                val pad = if (s.activePads and (1 shl i) != 0) "  → virtual pad" else ""
+                "Port ${i + 1}: $p$pad"
+            }.joinToString("\n")
+        } else {
+            message.ifEmpty { s.status }
+        }
+        text.text = "$header\n\nService: ${if (s.running) "running" else "stopped"}\n\n$body"
     }
 
     companion object {
         private const val TAG = "GcAdapter"
         private const val ACTION_USB_PERMISSION = "com.example.gcadapter.USB_PERMISSION"
-        private const val GC_VENDOR_ID = 0x057e
-        private const val GC_PRODUCT_ID = 0x0337
 
         init {
             // Loads libgcadapter.so, which CMake builds from src/main/cpp.

@@ -4,6 +4,12 @@
     <!-- We act as USB host for the adapter. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 
+    <!-- Foreground service (type "connectedDevice" = talks to an external device). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Android 13+: needed for the service's notification to be visible. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:label="GC Adapter"
         android:theme="@android:style/Theme.DeviceDefault">
@@ -26,5 +32,10 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <service
+            android:name=".AdapterService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

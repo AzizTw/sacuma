@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: a simple gamepad silhouette (status icons must be single-color). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M7,6h10c2.8,0 4.6,2.2 5,5.2l0.9,6.1c0.3,2 -1.2,3.7 -3.2,3.7c-1.1,0 -2,-0.5 -2.6,-1.4L15.6,17H8.4l-1.5,2.6C6.3,20.5 5.4,21 4.3,21c-2,0 -3.5,-1.7 -3.2,-3.7L2,11.2C2.4,8.2 4.2,6 7,6zM6,9.5v1.5H4.5v2H6v1.5h2V13h1.5v-2H8V9.5zM16.5,9.5a1.25,1.25 0,1 0,0.01 0zM18.5,12a1.25,1.25 0,1 0,0.01 0z" />
+</vector>
