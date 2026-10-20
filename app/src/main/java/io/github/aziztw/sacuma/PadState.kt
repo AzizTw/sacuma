@@ -33,6 +33,10 @@ data class PadState(
         const val B1_B = 0x02
         const val B1_X = 0x04
         const val B1_Y = 0x08
+        const val B1_LEFT = 0x10
+        const val B1_RIGHT = 0x20
+        const val B1_DOWN = 0x40
+        const val B1_UP = 0x80
         const val B2_START = 0x01
         const val B2_Z = 0x02
         const val B2_R = 0x04

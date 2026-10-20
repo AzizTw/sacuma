@@ -54,6 +54,8 @@ import io.github.aziztw.sacuma.AdapterState
 import io.github.aziztw.sacuma.PadState
 import io.github.aziztw.sacuma.Settings
 import kotlin.math.roundToInt
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Everything the screen needs; MainActivity owns the state and the actions. */
@@ -204,37 +206,48 @@ private fun PortCard(index: Int, state: UiState, modifier: Modifier) {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Label("P${index + 1}", 24.sp, Gc.Text, FontWeight.Medium)
             Spacer(Modifier.weight(1f))
+            ZPill(pad.pressed(b2Bit = PadState.B2_Z))
+            Spacer(Modifier.width(8.dp))
             Label(if (pad.type == 2) "Wireless" else "Wired", 13.sp, Gc.GoodText)
         }
-        // The gates take whatever room the card has: main stick ~56% of the width
-        // (or the free height, if smaller), C-stick two-thirds of that.
+        // Laid out like the controller: main stick top-left, face buttons top-right,
+        // D-pad bottom-left, C-stick bottom-right. Everything scales with the card.
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val main = minOf(maxWidth * 0.56f, maxHeight)
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                // GC sticks report up as a larger value, so up = (raw - center) > 0.
-                OctagonGate(
-                    size = main,
-                    x = (pad.sx - center[0]) / 100f, y = (pad.sy - center[1]) / 100f,
-                    dot = Gc.StickDot, deadzone = dz,
-                )
-                Spacer(Modifier.weight(1f))
-                OctagonGate(
-                    size = main * 0.68f,
-                    x = (pad.cx - center[2]) / 85f, y = (pad.cy - center[3]) / 85f,
-                    dot = Gc.CStick, deadzone = dz,
-                )
+            val col = (maxWidth - 8.dp) / 2
+            val top = maxHeight * 0.54f
+            val bottom = maxHeight - top
+            Column {
+                Row(Modifier.height(top), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(col), contentAlignment = Alignment.Center) {
+                        // GC sticks report up as a larger value, so up = (raw - center) > 0.
+                        OctagonGate(
+                            size = minOf(col, top) * 0.96f,
+                            x = (pad.sx - center[0]) / 100f, y = (pad.sy - center[1]) / 100f,
+                            dot = Gc.StickDot, deadzone = dz,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    FaceButtons(pad, Modifier.width(col).fillMaxHeight())
+                }
+                Row(Modifier.height(bottom), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(col), contentAlignment = Alignment.Center) {
+                        DPad(pad, minOf(col, bottom) * 0.5f)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.width(col), contentAlignment = Alignment.Center) {
+                        OctagonGate(
+                            size = minOf(col, bottom) * 0.78f,
+                            x = (pad.cx - center[2]) / 85f, y = (pad.cy - center[3]) / 85f,
+                            dot = Gc.CStick, deadzone = dz,
+                        )
+                    }
+                }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            FaceButton(pad.pressed(b1Bit = PadState.B1_A), Gc.AOn, Gc.AOff)
-            FaceButton(pad.pressed(b1Bit = PadState.B1_B), Gc.BOn, Gc.BOff)
-            FaceButton(pad.pressed(b1Bit = PadState.B1_X), Gc.XyOn, Gc.XyOff)
-            FaceButton(pad.pressed(b1Bit = PadState.B1_Y), Gc.XyOn, Gc.XyOff)
-            Spacer(Modifier.weight(1f))
-            Label("Z", 13.sp, if (pad.pressed(b2Bit = PadState.B2_Z)) Gc.Text else Gc.EmptyLabel, FontWeight.Medium)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Label("Start", 13.sp, if (pad.pressed(b2Bit = PadState.B2_START)) Gc.Text else Gc.EmptyLabel, FontWeight.Medium)
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -289,9 +302,101 @@ private fun OctagonGate(size: Dp, x: Float, y: Float, dot: Color, deadzone: Floa
     }
 }
 
+/**
+ * A, B, X, Y in the controller's real arrangement, measured from a photo with A's
+ * radius as the unit: B (r 0.6) sits 2.0 away at ~155°; X and Y are short kidney
+ * beans centered 1.85 away at ~-14° and ~-104°, hugging A. Angles: 0° = right,
+ * positive = clockwise (screen y points down).
+ */
 @Composable
-private fun FaceButton(pressed: Boolean, on: Color, off: Color) {
-    Box(Modifier.size(16.dp).clip(CircleShape).background(if (pressed) on else off))
+private fun FaceButtons(pad: PadState, modifier: Modifier) {
+    Canvas(modifier) {
+        // Cluster bounds in A-radius units: x -2.65..2.35, y -2.35..1.5 (may spill
+        // slightly into the gap between columns).
+        val r = minOf(size.width / 4.6f, size.height / 3.75f)
+        val c = Offset(size.width / 2 + 0.15f * r, size.height / 2 + 0.425f * r)
+
+        drawCircle(if (pad.pressed(b1Bit = PadState.B1_A)) Gc.AOn else Gc.AOff, r, c)
+        drawCircle(
+            if (pad.pressed(b1Bit = PadState.B1_B)) Gc.BOn else Gc.BOff,
+            0.6f * r, c + polar(2.0f * r, 155f),
+        )
+        val x = if (pad.pressed(b1Bit = PadState.B1_X)) Gc.XyOn else Gc.XyOff
+        val y = if (pad.pressed(b1Bit = PadState.B1_Y)) Gc.XyOn else Gc.XyOff
+        drawPath(kidney(c, r, from = -27f, to = -1f), x)
+        drawPath(kidney(c, r, from = -117f, to = -91f), y)
+    }
+}
+
+private fun polar(radius: Float, degrees: Float): Offset {
+    val a = Math.toRadians(degrees.toDouble())
+    return Offset((radius * cos(a)).toFloat(), (radius * sin(a)).toFloat())
+}
+
+/**
+ * Kidney-bean button around A (center [c], radius [r]) between two angles: an even-
+ * thickness band whose inner edge follows A, with round ends — one smooth outline.
+ */
+private fun kidney(c: Offset, r: Float, from: Float, to: Float): Path {
+    val inner = 1.4f * r
+    val thick = 0.9f * r
+    val n = 24
+    return Path().apply {
+        // outer edge, from -> to
+        for (i in 0..n) {
+            val p = c + polar(inner + thick, from + (to - from) * i / n)
+            if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+        }
+        // round end at `to`, sweeping outward -> forward -> inward
+        val capEnd = c + polar(inner + thick / 2, to)
+        for (i in 1..12) {
+            val p = capEnd + polar(thick / 2, to + 180f * i / 12)
+            lineTo(p.x, p.y)
+        }
+        // inner edge, to -> from
+        for (i in 0..n) {
+            val p = c + polar(inner, to + (from - to) * i / n)
+            lineTo(p.x, p.y)
+        }
+        // round end at `from`
+        val capStart = c + polar(inner + thick / 2, from)
+        for (i in 1..12) {
+            val p = capStart + polar(thick / 2, from + 180f + 180f * i / 12)
+            lineTo(p.x, p.y)
+        }
+        close()
+    }
+}
+
+/** Plus-shaped D-pad; the pressed direction(s) light up. */
+@Composable
+private fun DPad(pad: PadState, size: Dp) {
+    Canvas(Modifier.size(size)) {
+        val s = this.size.minDimension
+        val arm = s / 3
+        val corner = CornerRadius(arm * 0.25f)
+        fun cell(col: Int, row: Int, color: Color) = drawRoundRect(
+            color, topLeft = Offset(col * arm, row * arm),
+            size = androidx.compose.ui.geometry.Size(arm, arm), cornerRadius = corner,
+        )
+        // body: vertical and horizontal bars
+        drawRoundRect(Gc.Well, Offset(arm, 0f), androidx.compose.ui.geometry.Size(arm, s), corner)
+        drawRoundRect(Gc.Well, Offset(0f, arm), androidx.compose.ui.geometry.Size(s, arm), corner)
+        if (pad.pressed(b1Bit = PadState.B1_UP)) cell(1, 0, Gc.XyOn)
+        if (pad.pressed(b1Bit = PadState.B1_DOWN)) cell(1, 2, Gc.XyOn)
+        if (pad.pressed(b1Bit = PadState.B1_LEFT)) cell(0, 1, Gc.XyOn)
+        if (pad.pressed(b1Bit = PadState.B1_RIGHT)) cell(2, 1, Gc.XyOn)
+    }
+}
+
+/** Z, shaped like the controller's pill-shaped Z button. */
+@Composable
+private fun ZPill(pressed: Boolean) {
+    Box(
+        Modifier.clip(CircleShape)
+            .background(if (pressed) Gc.ActiveOutline else Gc.Well)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+    ) { Label("Z", 12.sp, if (pressed) Gc.Text else Gc.EmptyLabel, FontWeight.Medium) }
 }
 
 /** Same math as vpad.c's trigger(): what the game actually receives, 0..1. */
