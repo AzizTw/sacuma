@@ -88,9 +88,12 @@ class MainActivity : Activity() {
             return
         }
         show("Adapter connected, waiting for packets…")
-        reader = AdapterReader(usb, device) { pads ->
+        reader = AdapterReader(usb, device) { pads, active ->
             runOnUiThread {
-                show(pads.mapIndexed { i, p -> "Port ${i + 1}: $p" }.joinToString("\n"))
+                show(pads.mapIndexed { i, p ->
+                    val pad = if (active and (1 shl i) != 0) "  → virtual pad" else ""
+                    "Port ${i + 1}: $p$pad"
+                }.joinToString("\n"))
             }
         }.also { it.start() }
     }

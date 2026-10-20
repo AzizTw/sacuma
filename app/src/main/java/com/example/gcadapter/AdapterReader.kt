@@ -14,7 +14,8 @@ import android.util.Log
 class AdapterReader(
     private val usb: UsbManager,
     private val device: UsbDevice,
-    private val onUpdate: (List<PadState>) -> Unit,
+    /** Called on the reader thread with the port states and the active-virtual-pad bitmask. */
+    private val onUpdate: (pads: List<PadState>, activePads: Int) -> Unit,
 ) {
     @Volatile private var running = false
     private var thread: Thread? = null
@@ -69,6 +70,8 @@ class AdapterReader(
         var windowPackets = 0
         var errors = 0
         var windowStart = SystemClock.elapsedRealtime()
+        var lastActive = 0
+        var shownActive = 0
 
         try {
             while (running) {
@@ -92,8 +95,17 @@ class AdapterReader(
                     Log.i(TAG, "first packet: " + buf.joinToString(" ") { "%02x".format(it) })
                 }
 
+                // Virtual gamepads (C, via JNI) get every packet; logging below only on change.
+                val active = VirtualPads.processPacket(buf)
+                if (active != lastActive) {
+                    Log.i(TAG, "virtual pads active: " +
+                        (0 until 4).filter { active and (1 shl it) != 0 }.map { it + 1 })
+                    lastActive = active
+                }
+
                 val pads = parsePacket(buf)
-                var changed = false
+                var changed = lastActive != shownActive
+                shownActive = lastActive
                 for (i in 0 until 4) {
                     if (pads[i].differsFrom(last[i])) {
                         Log.i(TAG, "port ${i + 1}: ${pads[i]}")
@@ -102,7 +114,7 @@ class AdapterReader(
                 }
                 if (changed) {
                     last = pads
-                    onUpdate(pads)
+                    onUpdate(pads, active)
                 }
 
                 val now = SystemClock.elapsedRealtime()
@@ -114,6 +126,7 @@ class AdapterReader(
                 }
             }
         } finally {
+            VirtualPads.releaseAll()
             conn.releaseInterface(intf)
             conn.close()
             Log.i(TAG, "adapter closed after $packets packets")
