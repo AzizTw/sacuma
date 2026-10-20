@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="GC Adapter"
+        android:label="Sacuma"
         android:theme="@android:style/Theme.DeviceDefault">
 
         <!-- MAIN + LAUNCHER = show this activity as an icon in the app drawer.

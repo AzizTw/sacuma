@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <android/log.h>
 
-#define TAG "GcAdapter"
+#define TAG "Sacuma"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
 
@@ -247,7 +247,7 @@ static void vpad_update(struct vpad *v, const struct gcpad *g)
 
 /* Returns a bitmask of ports that currently have a virtual pad (bit 0 = port 1). */
 JNIEXPORT jint JNICALL
-Java_com_example_gcadapter_VirtualPads_processPacket(JNIEnv *env, jobject thiz, jbyteArray packet)
+Java_io_github_aziztw_sacuma_VirtualPads_processPacket(JNIEnv *env, jobject thiz, jbyteArray packet)
 {
     (void) thiz;
     uint8_t pkt[PKT_LEN];
@@ -292,7 +292,7 @@ Java_com_example_gcadapter_VirtualPads_processPacket(JNIEnv *env, jobject thiz, 
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_gcadapter_VirtualPads_releaseAll(JNIEnv *env, jobject thiz)
+Java_io_github_aziztw_sacuma_VirtualPads_releaseAll(JNIEnv *env, jobject thiz)
 {
     (void) env; (void) thiz;
     for (int i = 0; i < NPORTS; i++) {
@@ -302,7 +302,7 @@ Java_com_example_gcadapter_VirtualPads_releaseAll(JNIEnv *env, jobject thiz)
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_gcadapter_VirtualPads_setXboxLayout(JNIEnv *env, jobject thiz, jboolean xbox)
+Java_io_github_aziztw_sacuma_VirtualPads_setXboxLayout(JNIEnv *env, jobject thiz, jboolean xbox)
 {
     (void) env; (void) thiz;
     g_layout_xbox = xbox ? 1 : 0;

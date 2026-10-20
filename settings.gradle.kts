@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "gcadapter" // placeholder name
+rootProject.name = "sacuma"
 include(":app")

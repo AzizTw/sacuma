@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 import kotlin.math.abs
 

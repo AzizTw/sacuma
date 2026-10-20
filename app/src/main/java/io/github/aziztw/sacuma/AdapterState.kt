@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 import android.os.Handler
 import android.os.Looper

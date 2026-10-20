@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -153,10 +153,10 @@ class AdapterService : Service() {
     }
 
     companion object {
-        private const val TAG = "GcAdapter"
+        private const val TAG = "Sacuma"
         private const val CHANNEL_ID = "adapter"
         private const val NOTIFICATION_ID = 1
-        const val ACTION_STOP = "com.example.gcadapter.STOP"
+        const val ACTION_STOP = "io.github.aziztw.sacuma.STOP"
     }
 }
 

@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 /**
  * Kotlin side of vpad.c: one uinput virtual gamepad per connected GameCube port.
@@ -6,7 +6,7 @@ package com.example.gcadapter
  */
 object VirtualPads {
     init {
-        System.loadLibrary("gcadapter")
+        System.loadLibrary("sacuma")
     }
 
     /** Feeds one 37-byte packet. Returns a bitmask of ports with a live pad (bit 0 = port 1). */

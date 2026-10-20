@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
@@ -146,6 +146,6 @@ class AdapterReader(
     }
 
     companion object {
-        private const val TAG = "GcAdapter"
+        private const val TAG = "Sacuma"
     }
 }

@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.gcadapter" // placeholder until the project is named
+    namespace = "io.github.aziztw.sacuma"
     compileSdk = 36                     // API stubs we compile against
 
     defaultConfig {
-        applicationId = "com.example.gcadapter"
+        applicationId = "io.github.aziztw.sacuma"
         minSdk = 26        // oldest Android that may install the app
         targetSdk = 36     // Android behavior version we opt into
         versionCode = 1

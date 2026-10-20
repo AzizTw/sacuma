@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <android/log.h>
 
-#define TAG "GcAdapter"
+#define TAG "Sacuma"
 
 /*
  * JNI naming rule: Java_<package with _ for .>_<class>_<method>.
@@ -14,7 +14,7 @@
  * what milestone 3 depends on.
  */
 JNIEXPORT jstring JNICALL
-Java_com_example_gcadapter_MainActivity_nativeHello(JNIEnv *env, jobject thiz) {
+Java_io_github_aziztw_sacuma_MainActivity_nativeHello(JNIEnv *env, jobject thiz) {
     (void) thiz;
 
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);

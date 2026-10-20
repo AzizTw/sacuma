@@ -1,4 +1,4 @@
-package com.example.gcadapter
+package io.github.aziztw.sacuma
 
 import android.Manifest
 import android.app.Activity
@@ -142,12 +142,12 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val TAG = "GcAdapter"
-        private const val ACTION_USB_PERMISSION = "com.example.gcadapter.USB_PERMISSION"
+        private const val TAG = "Sacuma"
+        private const val ACTION_USB_PERMISSION = "io.github.aziztw.sacuma.USB_PERMISSION"
 
         init {
-            // Loads libgcadapter.so, which CMake builds from src/main/cpp.
-            System.loadLibrary("gcadapter")
+            // Loads libsacuma.so, which CMake builds from src/main/cpp.
+            System.loadLibrary("sacuma")
         }
     }
 }
