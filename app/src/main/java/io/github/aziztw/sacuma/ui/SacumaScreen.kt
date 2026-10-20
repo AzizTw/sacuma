@@ -208,10 +208,16 @@ private fun PortCard(index: Int, state: UiState, modifier: Modifier) {
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Label("P${index + 1}", 24.sp, Gc.Text, FontWeight.Medium)
+            // Status light: green while this port's virtual gamepad is live.
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.size(10.dp).clip(CircleShape).background(if (live) Gc.AOn else Gc.AOff))
+            // Only wireless (WaveBird receiver) gets a tag; wired is the normal case.
+            if (pad.type == 2) {
+                Spacer(Modifier.width(10.dp))
+                Label("WaveBird", 13.sp, Gc.GoodText)
+            }
             Spacer(Modifier.weight(1f))
             ZPill(pad.pressed(b2Bit = PadState.B2_Z))
-            Spacer(Modifier.width(8.dp))
-            Label(if (pad.type == 2) "Wireless" else "Wired", 13.sp, Gc.GoodText)
         }
         // Laid out like the controller: main stick top-left, face buttons top-right,
         // D-pad bottom-left, C-stick bottom-right. Everything scales with the card.
