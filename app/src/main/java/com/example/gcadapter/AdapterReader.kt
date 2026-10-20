@@ -16,7 +16,11 @@ class AdapterReader(
     private val device: UsbDevice,
     /** Called on the reader thread with the port states and the active-virtual-pad bitmask. */
     private val onUpdate: (pads: List<PadState>, activePads: Int) -> Unit,
+    /** Called on the reader thread once it has stopped, for whatever reason. */
+    private val onClosed: () -> Unit,
 ) {
+    val deviceName: String get() = device.deviceName
+
     @Volatile private var running = false
     private var thread: Thread? = null
 
@@ -32,6 +36,14 @@ class AdapterReader(
     }
 
     private fun run() {
+        try {
+            readLoop()
+        } finally {
+            onClosed()
+        }
+    }
+
+    private fun readLoop() {
         val conn = usb.openDevice(device)
         if (conn == null) {
             Log.e(TAG, "openDevice failed")
@@ -108,7 +120,7 @@ class AdapterReader(
                 shownActive = lastActive
                 for (i in 0 until 4) {
                     if (pads[i].differsFrom(last[i])) {
-                        Log.i(TAG, "port ${i + 1}: ${pads[i]}")
+                        if (pads[i].digitalDiffers(last[i])) Log.i(TAG, "port ${i + 1}: ${pads[i]}")
                         changed = true
                     }
                 }

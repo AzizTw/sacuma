@@ -18,7 +18,10 @@ data class PadState(
         for ((bit, name) in B2_NAMES) if (b2 and bit != 0) add(name)
     }.joinToString(" ")
 
-    /** Changed enough to be worth logging? Analog values jitter by a few units at rest. */
+    /** Connection or a button changed (worth a log line; analog moves would flood logcat). */
+    fun digitalDiffers(o: PadState): Boolean = type != o.type || b1 != o.b1 || b2 != o.b2
+
+    /** Changed enough to redraw? Analog values jitter by a few units at rest. */
     fun differsFrom(o: PadState): Boolean =
         type != o.type || b1 != o.b1 || b2 != o.b2 ||
             listOf(sx - o.sx, sy - o.sy, cx - o.cx, cy - o.cy, lt - o.lt, rt - o.rt)

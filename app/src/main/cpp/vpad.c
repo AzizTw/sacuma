@@ -28,7 +28,11 @@
 #define VPAD_VID 0x045e
 #define VPAD_PID 0x028e
 
-#define UNPLUG_PACKETS 25   /* ~200 ms of "empty port" before removing a pad */
+/* A port can read "empty" briefly without being unplugged: holding X+Y+Start
+ * makes the controller itself reset for a moment, and wiggly cables glitch.
+ * While empty, the pad is held neutral; it is only removed after this long. */
+#define UNPLUG_PACKETS 375  /* ~3 s */
+#define REAPPEAR_RECAL 25   /* back after >= ~200 ms empty: recalibrate */
 #define RETRY_PACKETS 125   /* ~1 s between attempts if creating a pad fails */
 #define RECAL_PACKETS 375   /* ~3 s holding X+Y+Start */
 
@@ -258,14 +262,29 @@ Java_com_example_gcadapter_VirtualPads_processPacket(JNIEnv *env, jobject thiz, 
     for (int i = 0; i < NPORTS; i++) {
         struct vpad *v = &g_pads[i];
         if (pads[i].type) {
+            if (v->fd >= 0 && v->missing >= REAPPEAR_RECAL) {
+                /* controller reset or replugged: same pad, fresh center */
+                calibrate(v, &pads[i]);
+                LOGI("port %d back after %d ms -> recalibrated", i + 1, v->missing * 8);
+            }
             v->missing = 0;
             if (v->fd < 0) {
                 if (v->retry_wait > 0) v->retry_wait--;
                 else if (vpad_create(v, i, &pads[i]) < 0) v->retry_wait = RETRY_PACKETS;
             }
             if (v->fd >= 0) vpad_update(v, &pads[i]);
-        } else if (v->fd >= 0 && ++v->missing >= UNPLUG_PACKETS) {
-            vpad_destroy(v, i);
+        } else if (v->fd >= 0) {
+            if (++v->missing >= UNPLUG_PACKETS) {
+                vpad_destroy(v, i);
+            } else if (v->missing == 1) {
+                /* release everything: buttons up, sticks centered, triggers 0 */
+                struct gcpad rest = {
+                    .type = 1, .sx = v->csx, .sy = v->csy, .cx = v->ccx, .cy = v->ccy,
+                    .lt = v->clt, .rt = v->crt,
+                };
+                vpad_update(v, &rest);
+                LOGI("port %d empty -> holding pad neutral", i + 1);
+            }
         }
         if (v->fd >= 0) active |= 1 << i;
     }

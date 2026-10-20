@@ -23,16 +23,26 @@ class MainActivity : Activity() {
     private var header = ""
     private var reader: AdapterReader? = null
 
-    // Android answers our permission request with a broadcast; this receives it.
-    private val permissionReceiver = object : BroadcastReceiver() {
+    // Android answers our permission request with a broadcast, and also broadcasts
+    // when a USB device is unplugged; this receives both.
+    private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != ACTION_USB_PERMISSION) return
-            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                Log.i(TAG, "USB permission granted")
-                connectAdapter()
-            } else {
-                Log.w(TAG, "USB permission denied")
-                show("USB permission denied")
+            when (intent.action) {
+                ACTION_USB_PERMISSION ->
+                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                        Log.i(TAG, "USB permission granted")
+                        connectAdapter()
+                    } else {
+                        Log.w(TAG, "USB permission denied")
+                        show("USB permission denied")
+                    }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    val device = usbDeviceExtra(intent) ?: return
+                    if (device.deviceName == reader?.deviceName) {
+                        Log.i(TAG, "adapter unplugged")
+                        reader?.stop() // its onClosed resets the UI state
+                    }
+                }
             }
         }
     }
@@ -50,11 +60,13 @@ class MainActivity : Activity() {
         setContentView(text)
 
         usb = getSystemService(UsbManager::class.java)
-        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        val filter = IntentFilter(ACTION_USB_PERMISSION).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
         if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(permissionReceiver, filter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
-            registerReceiver(permissionReceiver, filter)
+            registerReceiver(usbReceiver, filter)
         }
 
         connectAdapter()
@@ -69,7 +81,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         reader?.stop()
-        unregisterReceiver(permissionReceiver)
+        unregisterReceiver(usbReceiver)
         super.onDestroy()
     }
 
@@ -88,15 +100,38 @@ class MainActivity : Activity() {
             return
         }
         show("Adapter connected, waiting for packets…")
-        reader = AdapterReader(usb, device) { pads, active ->
-            runOnUiThread {
-                show(pads.mapIndexed { i, p ->
-                    val pad = if (active and (1 shl i) != 0) "  → virtual pad" else ""
-                    "Port ${i + 1}: $p$pad"
-                }.joinToString("\n"))
-            }
-        }.also { it.start() }
+        var self: AdapterReader? = null
+        self = AdapterReader(
+            usb, device,
+            onUpdate = { pads, active ->
+                runOnUiThread {
+                    show(pads.mapIndexed { i, p ->
+                        val pad = if (active and (1 shl i) != 0) "  → virtual pad" else ""
+                        "Port ${i + 1}: $p$pad"
+                    }.joinToString("\n"))
+                }
+            },
+            onClosed = {
+                runOnUiThread {
+                    // Forget the dead reader so a replugged adapter can connect again.
+                    if (reader === self) {
+                        reader = null
+                        show("Adapter disconnected. Plug it back in.")
+                    }
+                }
+            },
+        )
+        reader = self
+        self.start()
     }
+
+    @Suppress("DEPRECATION")
+    private fun usbDeviceExtra(intent: Intent): UsbDevice? =
+        if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        } else {
+            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+        }
 
     private fun requestPermission(device: UsbDevice) {
         // The intent must name our package (explicit), and be mutable so the
