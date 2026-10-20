@@ -1,10 +1,11 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose") // compiles @Composable functions
 }
 
 android {
     namespace = "io.github.aziztw.sacuma"
-    compileSdk = 36                     // API stubs we compile against
+    compileSdk = 37    // API stubs we compile against (Compose 1.12 needs 37)
 
     defaultConfig {
         applicationId = "io.github.aziztw.sacuma"
@@ -32,4 +33,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    // The BOM pins every Compose library to versions that work together.
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    // ComponentActivity + setContent { } (hosts Compose in an Activity).
+    implementation("androidx.activity:activity-compose:1.13.0")
 }

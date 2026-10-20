@@ -92,17 +92,19 @@ class AdapterService : Service() {
             return
         }
 
+        VirtualPads.apply(Settings.load(this))
         AdapterState.update { it.copy(running = true, status = "Connected") }
         var self: AdapterReader? = null
         self = AdapterReader(
             usb, device,
-            onUpdate = { pads, active ->
-                AdapterState.update { it.copy(pads = pads, activePads = active) }
+            onUpdate = { pads, active, calibration ->
+                AdapterState.update { it.copy(pads = pads, activePads = active, calibration = calibration) }
                 if (active != notifiedPads) {
                     notifiedPads = active
                     notify(padSummary(active))
                 }
             },
+            onRate = { hz -> AdapterState.update { it.copy(rateHz = hz) } },
             onClosed = {
                 // Reader died (adapter lost or stopped): nothing left to do.
                 main.post {

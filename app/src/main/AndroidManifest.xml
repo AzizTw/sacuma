@@ -12,7 +12,7 @@
 
     <application
         android:label="Sacuma"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@style/Theme.Sacuma">
 
         <!-- MAIN + LAUNCHER = show this activity as an icon in the app drawer.
              USB_DEVICE_ATTACHED + device_filter = offer to open us when the

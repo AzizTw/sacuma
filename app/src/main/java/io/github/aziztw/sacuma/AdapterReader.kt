@@ -15,7 +15,9 @@ class AdapterReader(
     private val usb: UsbManager,
     private val device: UsbDevice,
     /** Called on the reader thread with the port states and the active-virtual-pad bitmask. */
-    private val onUpdate: (pads: List<PadState>, activePads: Int) -> Unit,
+    private val onUpdate: (pads: List<PadState>, activePads: Int, calibration: IntArray) -> Unit,
+    /** Called on the reader thread about once a second with the measured packet rate. */
+    private val onRate: (hz: Double) -> Unit,
     /** Called on the reader thread once it has stopped, for whatever reason. */
     private val onClosed: () -> Unit,
 ) {
@@ -77,13 +79,15 @@ class AdapterReader(
             epIn.address, epOut.address, sent))
 
         val buf = ByteArray(PACKET_LEN)
-        var last = List(4) { PadState.EMPTY }
+        var logged = List(4) { PadState.EMPTY }
+        var published = List(4) { PadState.EMPTY }
+        var publishedActive = -1
+        var publishedAt = 0L
         var packets = 0
         var windowPackets = 0
         var errors = 0
         var windowStart = SystemClock.elapsedRealtime()
         var lastActive = 0
-        var shownActive = 0
 
         try {
             while (running) {
@@ -116,23 +120,28 @@ class AdapterReader(
                 }
 
                 val pads = parsePacket(buf)
-                var changed = lastActive != shownActive
-                shownActive = lastActive
                 for (i in 0 until 4) {
-                    if (pads[i].differsFrom(last[i])) {
-                        if (pads[i].digitalDiffers(last[i])) Log.i(TAG, "port ${i + 1}: ${pads[i]}")
-                        changed = true
-                    }
+                    if (pads[i].digitalDiffers(logged[i])) Log.i(TAG, "port ${i + 1}: ${pads[i]}")
                 }
-                if (changed) {
-                    last = pads
-                    onUpdate(pads, active)
+                logged = pads
+
+                // The screen gets every change, but at most ~60 times a second.
+                val now = SystemClock.elapsedRealtime()
+                if ((pads != published || active != publishedActive) && now - publishedAt >= 16) {
+                    published = pads
+                    publishedActive = active
+                    publishedAt = now
+                    val calibration = IntArray(24)
+                    VirtualPads.getCalibration(calibration)
+                    onUpdate(pads, active, calibration)
                 }
 
-                val now = SystemClock.elapsedRealtime()
-                if (now - windowStart >= 5000) {
-                    Log.i(TAG, "rate: %.1f packets/s (total %d)".format(
-                        windowPackets * 1000.0 / (now - windowStart), packets))
+                if (now - windowStart >= 1000) {
+                    val hz = windowPackets * 1000.0 / (now - windowStart)
+                    onRate(hz)
+                    if (packets % 5000 < windowPackets) {
+                        Log.i(TAG, "rate: %.1f packets/s (total %d)".format(hz, packets))
+                    }
                     windowStart = now
                     windowPackets = 0
                 }

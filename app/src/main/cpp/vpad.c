@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/uinput.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,7 +69,11 @@ struct vpad {
 static struct vpad g_pads[NPORTS] = {
     {.fd = -1}, {.fd = -1}, {.fd = -1}, {.fd = -1},
 };
+/* Settings, written from the UI thread via JNI, read on the reader thread. */
 static volatile int g_layout_xbox = 0;
+static volatile int g_stick_dz_pct = 6;    /* radial stick deadzone, % of full tilt */
+static volatile int g_trigger_dz = 10;     /* analog units above resting value */
+static volatile int g_recal_request = 0;   /* recalibrate all pads on next packet */
 
 static const int vpad_keys[] = {
     BTN_A, BTN_B, BTN_X, BTN_Y, BTN_TL, BTN_TR,
@@ -123,10 +128,11 @@ static int vpad_create(struct vpad *v, int port, const struct gcpad *g)
     for (size_t i = 0; i < sizeof abses / sizeof *abses; i++)
         ioctl(fd, UI_SET_ABSBIT, abses[i]);
 
-    abs_setup(fd, ABS_X, -32768, 32767, 1200);
-    abs_setup(fd, ABS_Y, -32768, 32767, 1200);
-    abs_setup(fd, ABS_RX, -32768, 32767, 1200);
-    abs_setup(fd, ABS_RY, -32768, 32767, 1200);
+    /* flat = 0: the deadzone is applied here (adjustable live), not by Android */
+    abs_setup(fd, ABS_X, -32768, 32767, 0);
+    abs_setup(fd, ABS_Y, -32768, 32767, 0);
+    abs_setup(fd, ABS_RX, -32768, 32767, 0);
+    abs_setup(fd, ABS_RY, -32768, 32767, 0);
     abs_setup(fd, ABS_Z, 0, 255, 0);
     abs_setup(fd, ABS_RZ, 0, 255, 0);
     abs_setup(fd, ABS_HAT0X, -1, 1, 0);
@@ -175,19 +181,29 @@ static void emit(struct vpad *v, int slot, int type, int code, int val)
 
 static int clampi(int x, int lo, int hi) { return x < lo ? lo : x > hi ? hi : x; }
 
-/* GC sticks travel roughly +-100 (main) / +-85 (C) from center. */
-static int stick(int raw, int center, int range, int invert)
+/* GC sticks travel roughly +-100 (main) / +-85 (C) from center.
+ * Radial deadzone: inside it the stick reads 0; outside, the remaining travel is
+ * rescaled so full tilt still reaches the edge. Y is inverted (GC up = larger). */
+static void stick(int rx, int ry, int cx, int cy, int range, int *out_x, int *out_y)
 {
-    int d = raw - center;
-    if (invert) d = -d;
-    return clampi(d * 32767 / range, -32768, 32767);
+    float x = (float) (rx - cx) / range;
+    float y = (float) (cy - ry) / range;
+    float mag = sqrtf(x * x + y * y);
+    float dz = g_stick_dz_pct / 100.0f;
+    if (mag <= dz || mag == 0.0f) {
+        *out_x = *out_y = 0;
+        return;
+    }
+    float scale = (mag - dz) / (1.0f - dz) / mag;
+    *out_x = clampi((int) (x * scale * 32767), -32768, 32767);
+    *out_y = clampi((int) (y * scale * 32767), -32768, 32767);
 }
 
 static int trigger(int raw, int base, int digital)
 {
     if (digital) return 255;
-    /* resting analog values jitter by ~+-5, so ignore the first 10 units */
-    base += 10;
+    /* resting analog values jitter by ~+-5, so ignore the first few units */
+    base += g_trigger_dz;
     int span = 225 - base;
     if (span < 64) span = 64;
     return clampi((raw - base) * 255 / span, 0, 255);
@@ -227,10 +243,13 @@ static void vpad_update(struct vpad *v, const struct gcpad *g)
     emit(v, s++, EV_KEY, BTN_TR, z);
     emit(v, s++, EV_KEY, BTN_START, start);
 
-    emit(v, s++, EV_ABS, ABS_X, stick(g->sx, v->csx, 100, 0));
-    emit(v, s++, EV_ABS, ABS_Y, stick(g->sy, v->csy, 100, 1));
-    emit(v, s++, EV_ABS, ABS_RX, stick(g->cx, v->ccx, 85, 0));
-    emit(v, s++, EV_ABS, ABS_RY, stick(g->cy, v->ccy, 85, 1));
+    int mx, my, cx, cy;
+    stick(g->sx, g->sy, v->csx, v->csy, 100, &mx, &my);
+    stick(g->cx, g->cy, v->ccx, v->ccy, 85, &cx, &cy);
+    emit(v, s++, EV_ABS, ABS_X, mx);
+    emit(v, s++, EV_ABS, ABS_Y, my);
+    emit(v, s++, EV_ABS, ABS_RX, cx);
+    emit(v, s++, EV_ABS, ABS_RY, cy);
     emit(v, s++, EV_ABS, ABS_Z, trigger(g->lt, v->clt, g->b2 & B2_L));
     emit(v, s++, EV_ABS, ABS_RZ, trigger(g->rt, v->crt, g->b2 & B2_R));
 
@@ -257,6 +276,13 @@ Java_io_github_aziztw_sacuma_VirtualPads_processPacket(JNIEnv *env, jobject thiz
 
     struct gcpad pads[NPORTS];
     parse(pkt, pads);
+
+    if (g_recal_request) {
+        g_recal_request = 0;
+        for (int i = 0; i < NPORTS; i++)
+            if (g_pads[i].fd >= 0 && pads[i].type) calibrate(&g_pads[i], &pads[i]);
+        LOGI("recalibrated from the app");
+    }
 
     int active = 0;
     for (int i = 0; i < NPORTS; i++) {
@@ -306,4 +332,41 @@ Java_io_github_aziztw_sacuma_VirtualPads_setXboxLayout(JNIEnv *env, jobject thiz
 {
     (void) env; (void) thiz;
     g_layout_xbox = xbox ? 1 : 0;
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_aziztw_sacuma_VirtualPads_setStickDeadzone(JNIEnv *env, jobject thiz, jint percent)
+{
+    (void) env; (void) thiz;
+    g_stick_dz_pct = clampi(percent, 0, 50);
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_aziztw_sacuma_VirtualPads_setTriggerDeadzone(JNIEnv *env, jobject thiz, jint units)
+{
+    (void) env; (void) thiz;
+    g_trigger_dz = clampi(units, 0, 100);
+}
+
+/* Fills out[24] with each port's calibration: sx sy cx cy lt rt (zeros if no pad). */
+JNIEXPORT void JNICALL
+Java_io_github_aziztw_sacuma_VirtualPads_getCalibration(JNIEnv *env, jobject thiz, jintArray out)
+{
+    (void) thiz;
+    jint c[NPORTS * 6] = {0};
+    for (int i = 0; i < NPORTS; i++) {
+        const struct vpad *v = &g_pads[i];
+        if (v->fd < 0) continue;
+        jint *p = c + 6 * i;
+        p[0] = v->csx; p[1] = v->csy; p[2] = v->ccx; p[3] = v->ccy; p[4] = v->clt; p[5] = v->crt;
+    }
+    if ((*env)->GetArrayLength(env, out) >= NPORTS * 6)
+        (*env)->SetIntArrayRegion(env, out, 0, NPORTS * 6, c);
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_aziztw_sacuma_VirtualPads_recalibrate(JNIEnv *env, jobject thiz)
+{
+    (void) env; (void) thiz;
+    g_recal_request = 1;
 }

@@ -1,7 +1,5 @@
 package io.github.aziztw.sacuma
 
-import kotlin.math.abs
-
 /** One controller port's state, decoded from a 37-byte adapter packet. */
 data class PadState(
     val type: Int,   // 0 = none, 1 = wired, 2 = wireless
@@ -21,11 +19,7 @@ data class PadState(
     /** Connection or a button changed (worth a log line; analog moves would flood logcat). */
     fun digitalDiffers(o: PadState): Boolean = type != o.type || b1 != o.b1 || b2 != o.b2
 
-    /** Changed enough to redraw? Analog values jitter by a few units at rest. */
-    fun differsFrom(o: PadState): Boolean =
-        type != o.type || b1 != o.b1 || b2 != o.b2 ||
-            listOf(sx - o.sx, sy - o.sy, cx - o.cx, cy - o.cy, lt - o.lt, rt - o.rt)
-                .any { abs(it) >= ANALOG_LOG_STEP }
+    fun pressed(b1Bit: Int = 0, b2Bit: Int = 0): Boolean = (b1 and b1Bit) != 0 || (b2 and b2Bit) != 0
 
     override fun toString(): String =
         if (!connected) "empty"
@@ -33,8 +27,16 @@ data class PadState(
             "stick=($sx,$sy) c=($cx,$cy) L=$lt R=$rt"
 
     companion object {
-        const val ANALOG_LOG_STEP = 10
         val EMPTY = PadState(0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        const val B1_A = 0x01
+        const val B1_B = 0x02
+        const val B1_X = 0x04
+        const val B1_Y = 0x08
+        const val B2_START = 0x01
+        const val B2_Z = 0x02
+        const val B2_R = 0x04
+        const val B2_L = 0x08
 
         private val B1_NAMES = listOf(
             0x01 to "A", 0x02 to "B", 0x04 to "X", 0x08 to "Y",

@@ -1,7 +1,6 @@
 package io.github.aziztw.sacuma
 
 import android.Manifest
-import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -13,21 +12,31 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.widget.TextView
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import io.github.aziztw.sacuma.ui.SacumaScreen
+import io.github.aziztw.sacuma.ui.UiActions
+import io.github.aziztw.sacuma.ui.UiState
 
 /**
- * The screen. It only asks for permissions, starts AdapterService, and shows the
- * service's state; the adapter itself is handled entirely by the service.
+ * The screen. It asks for permissions, starts/stops AdapterService, edits settings,
+ * and shows the service's state; the adapter itself is handled by the service.
  */
-class MainActivity : Activity() {
-
-    // `external` = implemented in C (native-lib.c), resolved by JNI at runtime.
-    private external fun nativeHello(): String
+class MainActivity : ComponentActivity() {
 
     private lateinit var usb: UsbManager
-    private lateinit var text: TextView
-    private var header = ""
-    private var message = ""
+
+    // Compose redraws whatever reads these when they change.
+    private var adapter by mutableStateOf(AdapterState.current)
+    private var settings by mutableStateOf(Settings())
+    private var message by mutableStateOf("")
 
     // Android answers our USB permission request with a broadcast; this receives it.
     private val permissionReceiver = object : BroadcastReceiver() {
@@ -38,24 +47,21 @@ class MainActivity : Activity() {
                 startAdapterService()
             } else {
                 Log.w(TAG, "USB permission denied")
-                setMessage("USB permission denied. Replug the adapter to try again.")
+                message = "USB permission denied"
             }
         }
     }
 
-    private val stateListener: (AdapterState.Snapshot) -> Unit = { render(it) }
+    private val stateListener: (AdapterState.Snapshot) -> Unit = { adapter = it }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge() // draw behind the status/navigation bars; the screen pads itself
         super.onCreate(savedInstanceState)
 
-        header = nativeHello()
-        text = TextView(this).apply {
-            textSize = 18f
-            setPadding(48, 48, 48, 48)
-        }
-        setContentView(text)
-
         usb = getSystemService(UsbManager::class.java)
+        settings = Settings.load(this)
+        VirtualPads.apply(settings)
+
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(permissionReceiver, filter, RECEIVER_NOT_EXPORTED)
@@ -70,13 +76,26 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
         }
 
-        handle(intent)
+        val actions = UiActions(
+            onDriverToggle = { on -> if (on) connect(fromAttach = false) else stopAdapterService() },
+            onSettings = { s ->
+                settings = s
+                s.save(this)
+                VirtualPads.apply(s)
+            },
+            onRecalibrate = { VirtualPads.recalibrate() },
+        )
+        setContent {
+            SacumaScreen(UiState(adapter, settings, message), actions)
+        }
+
+        connect(fromAttach = intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED)
     }
 
     // singleTop: a second launch (e.g. adapter plugged in while open) lands here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handle(intent)
+        connect(fromAttach = intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED)
     }
 
     override fun onStart() {
@@ -94,26 +113,43 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun handle(intent: Intent) {
+    // Our own virtual pads would otherwise drive this screen (e.g. GC A = Android "Back"
+    // in the Nintendo layout). While Sacuma is in front it acts as a tester, so swallow
+    // their input; the device's built-in controls still work normally.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        isOurPad(event.device) || super.dispatchKeyEvent(event)
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+        isOurPad(event.device) || super.dispatchGenericMotionEvent(event)
+
+    // Matches our pads and copies of them (AYN's mapper republishes them with the same name).
+    private fun isOurPad(device: InputDevice?): Boolean =
+        device?.name?.startsWith(VirtualPads.DEVICE_NAME_PREFIX) == true
+
+    private fun connect(fromAttach: Boolean) {
         val device = findAdapter(usb)
         when {
-            device == null -> setMessage("GameCube adapter not found. Plug it in.")
+            device == null -> message = "Plug in the adapter"
             !usb.hasPermission(device) -> {
-                setMessage("Asking for USB permission…")
+                message = "Waiting for USB permission"
                 requestPermission(device)
             }
             else -> {
                 startAdapterService()
                 // Opened by plugging the adapter in: start in the background and get
                 // out of the way so the user is back where they were.
-                if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) finish()
+                if (fromAttach) finish()
             }
         }
     }
 
     private fun startAdapterService() {
+        message = ""
         startForegroundService(Intent(this, AdapterService::class.java))
-        setMessage("")
+    }
+
+    private fun stopAdapterService() {
+        startService(Intent(this, AdapterService::class.java).setAction(AdapterService.ACTION_STOP))
     }
 
     private fun requestPermission(device: UsbDevice) {
@@ -124,30 +160,8 @@ class MainActivity : Activity() {
         usb.requestPermission(device, PendingIntent.getBroadcast(this, 0, intent, flags))
     }
 
-    private fun setMessage(m: String) {
-        message = m
-        render(AdapterState.current)
-    }
-
-    private fun render(s: AdapterState.Snapshot) {
-        val body = if (s.running) {
-            s.pads.mapIndexed { i, p ->
-                val pad = if (s.activePads and (1 shl i) != 0) "  → virtual pad" else ""
-                "Port ${i + 1}: $p$pad"
-            }.joinToString("\n")
-        } else {
-            message.ifEmpty { s.status }
-        }
-        text.text = "$header\n\nService: ${if (s.running) "running" else "stopped"}\n\n$body"
-    }
-
     companion object {
         private const val TAG = "Sacuma"
         private const val ACTION_USB_PERMISSION = "io.github.aziztw.sacuma.USB_PERMISSION"
-
-        init {
-            // Loads libsacuma.so, which CMake builds from src/main/cpp.
-            System.loadLibrary("sacuma")
-        }
     }
 }

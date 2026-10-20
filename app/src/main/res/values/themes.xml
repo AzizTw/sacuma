@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background matches the Compose screen, so there's no white flash on launch. -->
+    <style name="Theme.Sacuma" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/gc_background</item>
+    </style>
+
+    <color name="gc_background">#FF231E4A</color>
+</resources>

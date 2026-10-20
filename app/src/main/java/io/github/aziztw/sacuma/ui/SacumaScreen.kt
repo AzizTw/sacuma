@@ -1,0 +1,404 @@
+package io.github.aziztw.sacuma.ui
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.github.aziztw.sacuma.AdapterState
+import io.github.aziztw.sacuma.PadState
+import io.github.aziztw.sacuma.Settings
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
+
+/** Everything the screen needs; MainActivity owns the state and the actions. */
+data class UiState(
+    val adapter: AdapterState.Snapshot,
+    val settings: Settings,
+    val message: String,  // shown when the driver isn't running (e.g. "Plug in the adapter")
+)
+
+class UiActions(
+    val onDriverToggle: (Boolean) -> Unit,
+    val onSettings: (Settings) -> Unit,
+    val onRecalibrate: () -> Unit,
+)
+
+@Composable
+fun SacumaScreen(state: UiState, actions: UiActions) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(Gc.Background)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+    ) {
+        val landscape = maxWidth > maxHeight
+        // Phones in landscape are shorter than the Thor (~360 vs 468 dp): shrink a bit.
+        val compact = landscape && maxHeight < 400.dp
+        if (landscape) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
+                Header(state, actions)
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for (i in 0 until 4) PortCard(i, state, compact, Modifier.weight(1f).fillMaxHeight())
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    SettingsItems(state, actions) { w -> if (w > 0f) Modifier.weight(w) else Modifier }
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Header(state, actions)
+                for (row in 0 until 2) {
+                    Row(Modifier.fillMaxWidth().height(230.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        for (col in 0 until 2) PortCard(row * 2 + col, state, false, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SettingsItems(state, actions) { Modifier.fillMaxWidth() }
+                }
+            }
+        }
+    }
+}
+
+// ---------- header ----------
+
+@Composable
+private fun Header(state: UiState, actions: UiActions) {
+    val running = state.adapter.running
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Logo()
+        Label("Sacuma", 21.sp, Gc.Text, FontWeight.Medium)
+        val badge = when {
+            running -> "Active · ${state.adapter.rateHz.roundToInt()} Hz"
+            state.message.isNotEmpty() -> state.message
+            else -> "Off"
+        }
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .background(if (running) Gc.GoodBg else Gc.Well)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+        ) { Label(badge, 13.sp, if (running) Gc.GoodText else Gc.TextMuted) }
+        Spacer(Modifier.weight(1f))
+        Label("Driver", 13.sp, Gc.TextMuted)
+        Toggle(running, actions.onDriverToggle)
+    }
+}
+
+@Composable
+private fun Logo() {
+    Box(
+        Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Gc.Accent),
+        contentAlignment = Alignment.Center,
+    ) {
+        // A small cube seen corner-on: a rotated rounded square outline.
+        Canvas(Modifier.size(20.dp)) {
+            val s = size.minDimension * 0.62f
+            val c = center
+            rotateSquare(c, s)
+        }
+    }
+}
+
+private fun DrawScope.rotateSquare(c: Offset, s: Float) {
+    val h = s / 2 * 1.414f
+    val p = Path().apply {
+        moveTo(c.x, c.y - h); lineTo(c.x + h, c.y); lineTo(c.x, c.y + h); lineTo(c.x - h, c.y); close()
+    }
+    drawPath(p, Gc.Text, style = Stroke(width = 3.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round))
+}
+
+@Composable
+private fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
+    val knob by animateDpAsState(if (on) 25.dp else 3.dp, label = "knob")
+    val track by animateColorAsState(if (on) Gc.AOn else Gc.Well, label = "track")
+    Box(
+        Modifier
+            .size(52.dp, 30.dp)
+            .clip(CircleShape)
+            .background(track)
+            .clickable { onChange(!on) },
+    ) {
+        Box(
+            Modifier.offset(x = knob, y = 3.dp).size(24.dp).clip(CircleShape)
+                .background(if (on) Gc.Text else Gc.TextMuted),
+        )
+    }
+}
+
+// ---------- port cards ----------
+
+@Composable
+private fun PortCard(index: Int, state: UiState, compact: Boolean, modifier: Modifier) {
+    val pad = state.adapter.pads[index]
+    val connected = state.adapter.running && pad.connected
+    if (!connected) {
+        EmptyPort(index, modifier)
+        return
+    }
+    val cal = state.adapter.calibration.copyOfRange(index * 6, index * 6 + 6)
+    val hasCal = cal.any { it != 0 }
+    val center = if (hasCal) cal else intArrayOf(pad.sx, pad.sy, pad.cx, pad.cy, pad.lt, pad.rt)
+    val live = state.adapter.activePads and (1 shl index) != 0
+    val dz = state.settings.stickDeadzone / 100f
+
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Gc.Card)
+            .border(if (live) 1.5.dp else 0.dp, if (live) Gc.ActiveOutline else Color.Transparent, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Label("P${index + 1}", 24.sp, Gc.Text, FontWeight.Medium)
+            Spacer(Modifier.weight(1f))
+            Label(if (pad.type == 2) "Wireless" else "Wired", 13.sp, Gc.GoodText)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OctagonGate(
+                size = if (compact) 54.dp else 68.dp,
+                x = (pad.sx - center[0]) / 100f, y = (center[1] - pad.sy) / 100f,
+                dot = Gc.StickDot, deadzone = dz,
+            )
+            Spacer(Modifier.weight(1f))
+            OctagonGate(
+                size = if (compact) 38.dp else 46.dp,
+                x = (pad.cx - center[2]) / 85f, y = (center[3] - pad.cy) / 85f,
+                dot = Gc.CStick, deadzone = dz,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            FaceButton(pad.pressed(b1Bit = PadState.B1_A), Gc.AOn, Gc.AOff)
+            FaceButton(pad.pressed(b1Bit = PadState.B1_B), Gc.BOn, Gc.BOff)
+            FaceButton(pad.pressed(b1Bit = PadState.B1_X), Gc.XyOn, Gc.XyOff)
+            FaceButton(pad.pressed(b1Bit = PadState.B1_Y), Gc.XyOn, Gc.XyOff)
+            Spacer(Modifier.weight(1f))
+            Label("Z", 13.sp, if (pad.pressed(b2Bit = PadState.B2_Z)) Gc.Text else Gc.EmptyLabel, FontWeight.Medium)
+            Label("Start", 13.sp, if (pad.pressed(b2Bit = PadState.B2_START)) Gc.Text else Gc.EmptyLabel, FontWeight.Medium)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            TriggerBar("L", pad.lt, center[4], pad.pressed(b2Bit = PadState.B2_L), state.settings.triggerDeadzone)
+            TriggerBar("R", pad.rt, center[5], pad.pressed(b2Bit = PadState.B2_R), state.settings.triggerDeadzone)
+        }
+    }
+}
+
+@Composable
+private fun EmptyPort(index: Int, modifier: Modifier) {
+    Column(
+        modifier.drawBehind {
+            drawRoundRect(
+                Gc.EmptyBorder,
+                cornerRadius = CornerRadius(16.dp.toPx()),
+                style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+            )
+        },
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Label("P${index + 1}", 24.sp, Gc.EmptyNumber, FontWeight.Medium)
+        Label("Empty", 13.sp, Gc.EmptyLabel)
+    }
+}
+
+/** The notched octagon around a GameCube stick, with the stick's position as a dot. */
+@Composable
+private fun OctagonGate(size: Dp, x: Float, y: Float, dot: Color, deadzone: Float) {
+    Canvas(Modifier.size(size)) {
+        val r = this.size.minDimension / 2
+        val c = center
+        val k = 0.414f * r // octagon edge offset
+        val gate = Path().apply {
+            moveTo(c.x - k, c.y - r); lineTo(c.x + k, c.y - r); lineTo(c.x + r, c.y - k)
+            lineTo(c.x + r, c.y + k); lineTo(c.x + k, c.y + r); lineTo(c.x - k, c.y + r)
+            lineTo(c.x - r, c.y + k); lineTo(c.x - r, c.y - k); close()
+        }
+        drawPath(gate, Gc.Well)
+        val dotR = r * 0.26f
+        val travel = r - dotR - 2.dp.toPx()
+        if (deadzone > 0f) {
+            drawCircle(Gc.Card, radius = travel * deadzone + 1f, center = c, style = Stroke(1.dp.toPx()))
+        }
+        // Keep the dot inside the gate even past the nominal range.
+        var dx = x; var dy = y
+        val m = sqrt(dx * dx + dy * dy)
+        if (m > 1f) { dx /= m; dy /= m }
+        drawCircle(dot, radius = dotR, center = Offset(c.x + dx * travel, c.y - dy * travel))
+    }
+}
+
+@Composable
+private fun FaceButton(pressed: Boolean, on: Color, off: Color) {
+    Box(Modifier.size(16.dp).clip(CircleShape).background(if (pressed) on else off))
+}
+
+/** Same math as vpad.c's trigger(): what the game actually receives, 0..1. */
+@Composable
+private fun TriggerBar(name: String, raw: Int, rest: Int, digital: Boolean, deadzone: Int) {
+    val base = rest + deadzone
+    val span = (225 - base).coerceAtLeast(64)
+    val v = if (digital) 1f else ((raw - base).toFloat() / span).coerceIn(0f, 1f)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.width(12.dp)) { Label(name, 13.sp, Gc.TextMuted) }
+        Track(v, if (digital) Gc.Text else Gc.TriggerFill, Modifier.weight(1f), height = 6.dp)
+    }
+}
+
+// ---------- settings ----------
+
+/**
+ * The four settings controls. [itemModifier] places each one: weighted in the
+ * landscape row (weight 0 = natural width), full width in the portrait column.
+ */
+@Composable
+private fun SettingsItems(state: UiState, actions: UiActions, itemModifier: (weight: Float) -> Modifier) {
+    val slot: @Composable (Float, @Composable () -> Unit) -> Unit = { w, content ->
+        Box(itemModifier(w)) { content() }
+    }
+    val s = state.settings
+    slot(1.1f) {
+        Column {
+            Label("Button layout", 13.sp, Gc.TextMuted)
+            Spacer(Modifier.height(7.dp))
+            Segmented(
+                options = listOf("Nintendo", "Xbox"),
+                selected = if (s.xboxLayout) 1 else 0,
+                onSelect = { actions.onSettings(s.copy(xboxLayout = it == 1)) },
+            )
+        }
+    }
+    slot(1f) {
+        SliderSetting("Stick deadzone · ${s.stickDeadzone}%", s.stickDeadzone, 0, 30) {
+            actions.onSettings(s.copy(stickDeadzone = it))
+        }
+    }
+    slot(1f) {
+        SliderSetting("Trigger deadzone · ${s.triggerDeadzone}", s.triggerDeadzone, 0, 40) {
+            actions.onSettings(s.copy(triggerDeadzone = it))
+        }
+    }
+    slot(0f) {
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .border(1.5.dp, Gc.Accent, CircleShape)
+                .clickable(onClick = actions.onRecalibrate)
+                .padding(horizontal = 18.dp, vertical = 9.dp),
+        ) { Label("Recalibrate", 14.sp, Gc.StickDot) }
+    }
+}
+
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(CircleShape).background(Gc.Well).padding(3.dp)) {
+        options.forEachIndexed { i, label ->
+            val bg by animateColorAsState(if (i == selected) Gc.Accent else Color.Transparent, label = "seg")
+            Box(
+                Modifier.weight(1f).clip(CircleShape).background(bg)
+                    .clickable { onSelect(i) }.padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) { Label(label, 14.sp, if (i == selected) Gc.Text else Gc.TextMuted) }
+        }
+    }
+}
+
+@Composable
+private fun SliderSetting(title: String, value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
+    Column {
+        Label(title, 13.sp, Gc.TextMuted)
+        Spacer(Modifier.height(10.dp))
+        val fraction = (value - min).toFloat() / (max - min)
+        // Touch target is taller than the visible track.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .pointerInput(min, max) {
+                    fun set(px: Float) = onChange((min + (px / size.width).coerceIn(0f, 1f) * (max - min)).roundToInt())
+                    detectTapGestures { set(it.x) }
+                }
+                .pointerInput(min, max) {
+                    fun set(px: Float) = onChange((min + (px / size.width).coerceIn(0f, 1f) * (max - min)).roundToInt())
+                    detectHorizontalDragGestures { change, _ -> set(change.position.x) }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Track(fraction, Gc.AccentSoft, Modifier.fillMaxWidth(), height = 6.dp)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier.offset(x = (maxWidth - 18.dp) * fraction).size(18.dp)
+                        .clip(CircleShape).background(Gc.StickDot),
+                )
+            }
+        }
+    }
+}
+
+// ---------- primitives ----------
+
+@Composable
+private fun Track(fraction: Float, fill: Color, modifier: Modifier, height: Dp) {
+    Box(modifier.height(height).clip(CircleShape).background(Gc.Well)) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).clip(CircleShape).background(fill))
+    }
+}
+
+@Composable
+private fun Label(text: String, size: TextUnit, color: Color, weight: FontWeight = FontWeight.Normal) {
+    BasicText(text, style = TextStyle(fontFamily = Rubik, fontSize = size, color = color, fontWeight = weight))
+}

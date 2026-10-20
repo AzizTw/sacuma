@@ -15,6 +15,9 @@ object AdapterState {
         val status: String = "Not running",
         val pads: List<PadState> = List(4) { PadState.EMPTY },
         val activePads: Int = 0,
+        val rateHz: Double = 0.0,
+        /** Per port: sx sy cx cy lt rt centers (6 ints each), zeros when no pad. */
+        val calibration: IntArray = IntArray(24),
     )
 
     private val main = Handler(Looper.getMainLooper())
