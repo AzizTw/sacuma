@@ -37,7 +37,7 @@ That's it. Your controllers now work in any game.
 
 ## Compatibility
 
-- **Adapter:** the official Nintendo GameCube adapter (WUP-028). Plug in the black USB plug.
+- **Adapter:** the official Nintendo GameCube adapter (WUP-028). Plug in the black USB plug (The rumble feature is planned, so you won't benefit from plugging the grey USB currently).
 - **Devices:** tested on the AYN Thor (Android 13). Sacuma creates its gamepads through
   Linux's `uinput`, which some gaming handhelds allow apps to use. Most stock phones don't
   allow it yet; support for those (with root) is planned.
