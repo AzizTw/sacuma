@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon foreground: the in-app logo diamond, inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M54,33 L75,54 L54,75 L33,54 Z"
+        android:strokeColor="#FFF1EEFF"
+        android:strokeWidth="6.5"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M54,50.5 a3.5,3.5 0 1,0 0.01,0 Z"
+        android:fillColor="#FFF2C230" />
+</vector>

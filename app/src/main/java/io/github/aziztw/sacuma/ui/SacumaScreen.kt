@@ -85,7 +85,7 @@ fun SacumaScreen(state: UiState, actions: UiActions) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
                 Header(state, actions)
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    for (i in 0 until 4) PortCard(i, state, compact, Modifier.weight(1f).fillMaxHeight())
+                    for (i in 0 until 4) PortCard(i, state, Modifier.weight(1f).fillMaxHeight())
                 }
                 Row(
                     Modifier.fillMaxWidth(),
@@ -103,7 +103,7 @@ fun SacumaScreen(state: UiState, actions: UiActions) {
                 Header(state, actions)
                 for (row in 0 until 2) {
                     Row(Modifier.fillMaxWidth().height(230.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        for (col in 0 until 2) PortCard(row * 2 + col, state, false, Modifier.weight(1f).fillMaxHeight())
+                        for (col in 0 until 2) PortCard(row * 2 + col, state, Modifier.weight(1f).fillMaxHeight())
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -183,7 +183,7 @@ private fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
 // ---------- port cards ----------
 
 @Composable
-private fun PortCard(index: Int, state: UiState, compact: Boolean, modifier: Modifier) {
+private fun PortCard(index: Int, state: UiState, modifier: Modifier) {
     val pad = state.adapter.pads[index]
     val connected = state.adapter.running && pad.connected
     if (!connected) {
@@ -202,25 +202,31 @@ private fun PortCard(index: Int, state: UiState, compact: Boolean, modifier: Mod
             .background(Gc.Card)
             .border(if (live) 1.5.dp else 0.dp, if (live) Gc.ActiveOutline else Color.Transparent, RoundedCornerShape(16.dp))
             .padding(14.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Label("P${index + 1}", 24.sp, Gc.Text, FontWeight.Medium)
             Spacer(Modifier.weight(1f))
             Label(if (pad.type == 2) "Wireless" else "Wired", 13.sp, Gc.GoodText)
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OctagonGate(
-                size = if (compact) 54.dp else 68.dp,
-                x = (pad.sx - center[0]) / 100f, y = (center[1] - pad.sy) / 100f,
-                dot = Gc.StickDot, deadzone = dz,
-            )
-            Spacer(Modifier.weight(1f))
-            OctagonGate(
-                size = if (compact) 38.dp else 46.dp,
-                x = (pad.cx - center[2]) / 85f, y = (center[3] - pad.cy) / 85f,
-                dot = Gc.CStick, deadzone = dz,
-            )
+        // The gates take whatever room the card has: main stick ~56% of the width
+        // (or the free height, if smaller), C-stick two-thirds of that.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val main = minOf(maxWidth * 0.56f, maxHeight)
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                // GC sticks report up as a larger value, so up = (raw - center) > 0.
+                OctagonGate(
+                    size = main,
+                    x = (pad.sx - center[0]) / 100f, y = (pad.sy - center[1]) / 100f,
+                    dot = Gc.StickDot, deadzone = dz,
+                )
+                Spacer(Modifier.weight(1f))
+                OctagonGate(
+                    size = main * 0.68f,
+                    x = (pad.cx - center[2]) / 85f, y = (pad.cy - center[3]) / 85f,
+                    dot = Gc.CStick, deadzone = dz,
+                )
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             FaceButton(pad.pressed(b1Bit = PadState.B1_A), Gc.AOn, Gc.AOff)
@@ -256,7 +262,8 @@ private fun EmptyPort(index: Int, modifier: Modifier) {
     }
 }
 
-/** The notched octagon around a GameCube stick, with the stick's position as a dot. */
+/** The notched octagon around a GameCube stick, with the stick's position as a dot.
+ *  x/y are -1..1 with +y = up. */
 @Composable
 private fun OctagonGate(size: Dp, x: Float, y: Float, dot: Color, deadzone: Float) {
     Canvas(Modifier.size(size)) {

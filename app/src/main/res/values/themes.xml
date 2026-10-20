@@ -6,4 +6,5 @@
     </style>
 
     <color name="gc_background">#FF231E4A</color>
+    <color name="gc_accent">#FF5A4FB0</color>
 </resources>
