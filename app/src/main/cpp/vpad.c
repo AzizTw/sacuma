@@ -1,6 +1,6 @@
 /*
  * Virtual gamepads via /dev/uinput, one per connected GameCube port.
- * Ported from reference/gcadapter.c (parse, calibrate, mapping, vpad_*).
+ * Handles packet parsing, calibration, button mapping and hot-plug of pads.
  *
  * Kotlin calls VirtualPads.processPacket() with every 37-byte adapter packet
  * (always from the same reader thread), and releaseAll() when it stops.

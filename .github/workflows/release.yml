@@ -1,0 +1,43 @@
+# Builds a signed APK and publishes it as a GitHub Release when a version tag
+# (e.g. v0.1.0) is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload the APK
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing key
+        run: echo "${{ secrets.SACUMA_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed APK
+        env:
+          SACUMA_KEYSTORE: ${{ runner.temp }}/release.jks
+          SACUMA_KEYSTORE_PASSWORD: ${{ secrets.SACUMA_KEYSTORE_PASSWORD }}
+          SACUMA_KEY_ALIAS: ${{ secrets.SACUMA_KEY_ALIAS }}
+          SACUMA_KEY_PASSWORD: ${{ secrets.SACUMA_KEY_PASSWORD }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x gradlew
+          ./gradlew assembleRelease -PversionName="$VERSION" -PversionCode="${{ github.run_number }}"
+          cp app/build/outputs/apk/release/app-release.apk "Sacuma-$VERSION.apk"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Sacuma-*.apk
+          generate_release_notes: true

@@ -53,7 +53,8 @@ class AdapterReader(
         }
         val intf = device.getInterface(0)
         // force = true detaches the kernel's usbhid driver, which drops the
-        // adapter's oversized packets (see "Dead ends" in AGENTS.md).
+        // adapter's packets (they are larger than its HID report descriptor declares,
+        // so the kernel rejects every one with EOVERFLOW).
         if (!conn.claimInterface(intf, true)) {
             Log.e(TAG, "claimInterface failed")
             conn.close()
